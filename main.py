@@ -11,18 +11,49 @@
 
 
 from app.service.backtest import BacktestManager
-BacktestManager.run_backtest(
-    exchange_name="binance",
-    symbol="BTC/USDT",
-    timeframe="1d",
-    start_time="2019-01-01",
-    end_time="2024-06-21",
-    timezone="Asia/Seoul",
-    strategy_name="MyStrategy",
-    commission=0.002,
-    cash=100000,
-    exclusive_orders=True
-)
+from app.service.strategy import MyStrategy
+from app.service.TradingBot import TradingBot
+import ccxt.pro as ccxtpro
+import asyncio
+
+async def main():
+    # exchange = ccxtpro.binance()
+    #
+    #
+    # if exchange.has['watchOHLCV']:
+    #     print('Watching OHLCV...')
+    #     while True:
+    #         try:
+    #             candles = await exchange.watch_ohlcv("BTC/USDT", "1m")
+    #             print(exchange.iso8601(exchange.milliseconds()), candles)
+    #         except Exception as e:
+    #             print(e)
+    #             # stop the loop on exception or leave it commented to retry
+    #             # raise e
+
+    bot = TradingBot('binance','BTC/USDT', '1m', MyStrategy, initial_cash=10000)
+
+    try:
+        await bot.run()
+    except KeyboardInterrupt:
+        await bot.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+
+# BacktestManager.run_backtest(
+#     exchange_name="binance",
+#     symbol="BTC/USDT",
+#     timeframe="1d",
+#     start_time="2019-01-01",
+#     end_time="2024-06-21",
+#     timezone="Asia/Seoul",
+#     strategy_name="MyStrategy",
+#     commission=0.002,
+#     cash=100000,
+#     exclusive_orders=True
+# )
 
 # bt.plot(
 #     plot_width=None,  # 기본값 유지
