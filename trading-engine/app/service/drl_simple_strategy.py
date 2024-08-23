@@ -5,7 +5,7 @@ from .DRL.settings import MODEL_STORE_INTERVAL, GRAPH_DRAW_INTERVAL, N_TRAIN, LO
 
 import torch
 import numpy as np
-# import pandas as pd
+import pandas as pd
 import time
 
 
@@ -25,8 +25,45 @@ class DRLStrategy(Strategy):
         self.is_data_done = False
         self.episode_start = time.perf_counter()
 
+    # def resample_and_align(self, freq, reference_index):
+    #     d = self.data.df
+
+    #     d.loc[:, 'datetime'] = (pd.to_datetime(d.loc[:, 'datetime']))
+    #     d.set_index('datetime', inplace=True)
+
+    #     resampled_data = d.resample(freq).agg({
+    #         'Open': 'first',
+    #         'Close': 'last',
+    #         'High': 'max',
+    #         'Low': 'min',
+    #         'Volume': 'sum'
+    #     }).dropna()
+
+    #     aligned_data = resampled_data.loc[resampled_data.index <= self.data.datetime[reference_index]].tail(self.agent.state_size)
+    #     return aligned_data
+
+    # def resample_and_align(self, freq, reference_index):
+    #     d = self.data.df
+    #     d.loc[:, 'datetime'] = pd.to_datetime(d.loc[:, 'datetime'])
+    #     print(type(d.loc[0, 'datetime']))
+    #     resampled_data = d.groupby(pd.Grouper(key='datetime', freq=freq)).agg({
+    #         'Open': 'first',
+    #         'Close': 'last',
+    #         'High': 'max',
+    #         'Low': 'min',
+    #         'Volume': 'sum'
+    #     }).dropna()
+
+    #     aligned_data = resampled_data.loc[resampled_data.index <= self.data.datetime[reference_index]].tail(self.agent.state_size)
+        
+    #     return aligned_data
+
     def resample_and_align(self, freq, reference_index):
-        resampled_data = self.data.resample(freq).agg({
+        d = self.data.df
+
+        d.loc[:, 'datetime'] = pd.to_datetime(d.loc[:, 'datetime'])
+
+        resampled_data = d.groupby(d.loc[:, 'datetime'].dt.to_period(freq)).agg({
             'Open': 'first',
             'Close': 'last',
             'High': 'max',
@@ -34,7 +71,8 @@ class DRLStrategy(Strategy):
             'Volume': 'sum'
         }).dropna()
 
-        aligned_data = resampled_data.loc[resampled_data.index <= self.data.index[reference_index]].tail(self.agent.state_size)
+        aligned_data = resampled_data.loc[resampled_data.index.to_timestamp() <= self.data.datetime[reference_index]].tail(self.agent.state_size)
+
         return aligned_data
 
     def get_state(self):
@@ -44,43 +82,39 @@ class DRLStrategy(Strategy):
                                     self.data.Low[-self.agent.state_size:],
                                     self.data.Volume[-self.agent.state_size:]])
 
-        # 기준 인덱스: 1분봉의 마지막 인덱스
         reference_index = -1
 
-        # 5분봉 데이터
-        five_minute_data = self.resample_and_align('5T', reference_index)
+        five_minute_data = self.resample_and_align('5min', reference_index)
         five_minute_state = np.array([five_minute_data.Open,
                                         five_minute_data.Close,
                                         five_minute_data.High,
                                         five_minute_data.Low,
                                         five_minute_data.Volume])
 
-        # 30분봉 데이터
-        thirty_minute_data = self.resample_and_align('30T', reference_index)
+        thirty_minute_data = self.resample_and_align('30min', reference_index)
         thirty_minute_state = np.array([thirty_minute_data.Open,
                                         thirty_minute_data.Close,
                                         thirty_minute_data.High,
                                         thirty_minute_data.Low,
                                         thirty_minute_data.Volume])
 
-        # 1시간봉 데이터
-        one_hour_data = self.resample_and_align('1H', reference_index)
+        one_hour_data = self.resample_and_align('1h', reference_index)
         one_hour_state = np.array([one_hour_data.Open,
                                     one_hour_data.Close,
                                     one_hour_data.High,
                                     one_hour_data.Low,
                                     one_hour_data.Volume])
 
-        # 4시간봉 데이터
-        four_hour_data = self.resample_and_align('4H', reference_index)
+        four_hour_data = self.resample_and_align('4h', reference_index)
         four_hour_state = np.array([four_hour_data.Open,
                                     four_hour_data.Close,
                                     four_hour_data.High,
                                     four_hour_data.Low,
                                     four_hour_data.Volume])
 
-        return np.concatenate((one_minute_data, five_minute_state, thirty_minute_state, one_hour_state, four_hour_state, self.previous_action), axis=0)
 
+        return np.concatenate((one_minute_data, five_minute_state, thirty_minute_state, one_hour_state, four_hour_state, np.array(self.previous_action).reshape(1, 300)), axis=0)
+        
 
     def reward(self, current_action, is_liq):
         rw = 0
@@ -130,7 +164,7 @@ class DRLStrategy(Strategy):
 
 
     def next(self):
-        if len(self.data) < N_TRAIN + 1:
+        if len(self.data) < N_TRAIN * 60 * 4 + 1:
             return
         state = torch.tensor(self.get_state()).detach().cpu().to(dtype=torch.float)
         self.previous_balance = self.current_balance
@@ -173,7 +207,7 @@ class DRLStrategy(Strategy):
             return
 
         self.agent.graph.update_data(self.step, self.agent.total_step, final_balance, self.reward_sum, self.agent.loss_critic, self.agent.loss_actor)
-        self.agent.logger.file_log.write(f"{self.agent.episode}, {self.reward_sum}, {final_balance if final_balance > 0 else "Liquifieded"}, {duration}, {self.step}, {self.agent.total_step}, \
+        self.agent.logger.file_log.write(f"{self.agent.episode}, {self.reward_sum}, {final_balance if final_balance > 0 else 'Liquifieded'}, {duration}, {self.step}, {self.agent.total_step}, \
                                 {self.agent.replay_buffer.get_length()}, {self.agent.loss_critic / self.step}, {self.agent.loss_actor / self.step}\n")
 
 
