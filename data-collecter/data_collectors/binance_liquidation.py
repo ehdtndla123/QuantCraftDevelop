@@ -50,3 +50,4 @@ class BinanceLiquidation(BaseCollector):
         if self.ws:
             await self.ws.close()
         await super().stop()
+        self.logger.info(f"Binance Websocket 연결 종료 : {self.symbol} liquidation data")
