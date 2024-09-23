@@ -5,6 +5,7 @@ from aiokafka import AIOKafkaProducer
 import json
 import ssl
 import certifi
+import aiohttp
 
 
 class BaseCollector(ABC):
@@ -59,7 +60,6 @@ class BaseCollector(ABC):
         if self.producer:
             await self.producer.stop()
 
-
     @abstractmethod
     async def process_data(self, data):
         # 데이터 처리
@@ -69,3 +69,18 @@ class BaseCollector(ABC):
     def get_interval(self):
         # 몇분 주기로 받을지
         pass
+
+
+class RESTAPICollector(BaseCollector):
+    def __init__(self, symbol, kafka_bootstrap_servers, topic, db_manager=None):
+        super().__init__(symbol, kafka_bootstrap_servers, topic, db_manager)
+        self.session = None
+
+    async def initialize(self):
+        await super().initialize()
+        self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=self.ssl_context))
+
+    async def stop(self):
+        await super().stop()
+        if self.session:
+            await self.session.close()
